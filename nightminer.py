@@ -49,10 +49,9 @@ VERSION = [0, 1]
 
 
 # Which algorithm for proof-of-work to use
-ALGORITHM_SCRYPT = 'scrypt'
 ALGORITHM_SHA256D = 'sha256d'
 
-ALGORITHMS = [ALGORITHM_SCRYPT, ALGORITHM_SHA256D]
+ALGORITHMS = [ALGORITHM_SHA256D]
 
 # Verbosity and log level
 QUIET = False
@@ -64,16 +63,9 @@ LEVEL_INFO = 'info'
 LEVEL_DEBUG = 'debug'
 LEVEL_ERROR = 'error'
 
-# These control which scrypt implementation to use
-SCRYPT_LIBRARY_AUTO = 'auto'
-SCRYPT_LIBRARY_LTC = 'ltc_scrypt (https://github.com/forrestv/p2pool)'
-SCRYPT_LIBRARY_SCRYPT = 'scrypt (https://pypi.python.org/pypi/scrypt/)'
-SCRYPT_LIBRARY_PYTHON = 'pure python'
-SCRYPT_LIBRARIES = [SCRYPT_LIBRARY_AUTO, SCRYPT_LIBRARY_LTC, SCRYPT_LIBRARY_SCRYPT, SCRYPT_LIBRARY_PYTHON]
-
 
 def log(message, level):
-    '''Conditionally write a message to stdout based on command line options and level.'''
+    """Conditionally write a message to stdout based on command line options and level."""
 
     global DEBUG
     global DEBUG_PROTOCOL
@@ -94,22 +86,22 @@ unhexlify = binascii.unhexlify
 
 
 def sha256d(message):
-    '''Double SHA256 Hashing function.'''
+    """Double SHA256 Hashing function."""
 
     return hashlib.sha256(hashlib.sha256(message).digest()).digest()
 
 
 def swap_endian_word(hex_word):
-    '''Swaps the endianness of a hexidecimal string of a word and converts to a binary string.'''
+    """Swaps the endianness of a hexidecimal string of a word and converts to a binary string."""
 
     message = unhexlify(hex_word)
-    print(message)
+    #print(message)
     if len(message) != 4: raise ValueError('Must be 4-byte word')
     return message[::-1]
 
 
 def swap_endian_words(hex_words):
-    '''Swaps the endianness of a hexidecimal string of words and converts to binary string.'''
+    """Swaps the endianness of a hexidecimal string of words and converts to binary string."""
     combined = b''
     message = unhexlify(hex_words)
     if len(message) % 4 != 0:
@@ -122,7 +114,7 @@ def swap_endian_words(hex_words):
 
 
 def human_readable_hashrate(hashrate):
-    '''Returns a human readable representation of hashrate.'''
+    """Returns a human readable representation of hashrate."""
 
     if hashrate < 1000:
         return '%2f hashes/s' % hashrate
@@ -133,248 +125,12 @@ def human_readable_hashrate(hashrate):
     return '%2f Ghashes/s' % (hashrate / 1000000000)
 
 
-def scrypt(password, salt, N, r, p, dkLen):
-    """Returns the result of the scrypt password-based key derivation function.
-
-     This is used as the foundation of the proof-of-work for litecoin and other
-     scrypt-based coins, using the parameters:
-       password = bloack_header
-       salt     = block_header
-       N        = 1024
-       r        = 1
-       p        = 1
-       dkLen    = 256 bits (=32 bytes)
-
-     Please note, that this is a pure Python implementation, and is slow. VERY
-     slow. It is meant only for completeness of a pure-Python, one file stratum
-     server for Litecoin.
-
-     I have included the ltc_scrypt C-binding from p2pool (https://github.com/forrestv/p2pool)
-     which is several thousand times faster. The server will automatically attempt to load
-     the faster module (use set_scrypt_library to choose a specific library).
-   """
-
-    def array_overwrite(source, source_start, dest, dest_start, length):
-        '''Overwrites the dest array with the source array.'''
-
-        for i in range(0, length):
-            dest[dest_start + i] = source[source_start + i]
-
-    def blockxor(source, source_start, dest, dest_start, length):
-        '''Performs xor on arrays source and dest, storing the result back in dest.'''
-
-        print(source)
-        print(dest)
-        for i in range(0, length):
-            dest[dest_start + i] = chr(int(dest[dest_start + i]) ^ int(source[source_start + i]))
-
-    def pbkdf2(passphrase, salt, count, dkLen, prf):
-        '''Returns the result of the Password-Based Key Derivation Function 2.
-
-       See http://en.wikipedia.org/wiki/PBKDF2
-    '''
-
-        def f(block_number):
-            '''The function "f".'''
-
-            U = prf(passphrase, salt + struct.pack('>L', block_number))
-
-            # Not used for scrpyt-based coins, could be removed, but part of a more general solution
-            if count > 1:
-                U = [c for c in U]
-                for i in range(2, 1 + count):
-                    blockxor(prf(passphrase, ''.join(U)), 0, U, 0, len(U))
-                U = ''.join(U)
-
-            return U
-
-        # PBKDF2 implementation
-        size = 0
-
-        block_number = 0
-        blocks = []
-
-        # The iterations
-        while size < dkLen:
-            block_number += 1
-            block = f(block_number)
-
-            blocks.append(block)
-            size += len(block)
-
-        combined = b''
-        for x in blocks:
-            combined = combined + x
-
-        return combined[:dkLen]
-
-    def integerify(B, Bi, r):
-        '''"A bijective function from ({0, 1} ** k) to {0, ..., (2 ** k) - 1".'''
-
-        Bi += (2 * r - 1) * 64
-        n = ord(B[Bi]) | (ord(B[Bi + 1]) << 8) | (ord(B[Bi + 2]) << 16) | (ord(B[Bi + 3]) << 24)
-        return n
-
-    def make_int32(v):
-        '''Converts (truncates, two's compliments) a number to an int32.'''
-
-        if v > 0x7fffffff: return -1 * ((~v & 0xffffffff) + 1)
-        return v
-
-    def R(X, destination, a1, a2, b):
-        '''A single round of Salsa.'''
-
-        a = (X[a1] + X[a2]) & 0xffffffff
-        X[destination] ^= ((a << b) | (a >> (32 - b)))
-
-    def salsa20_8(B):
-        '''Salsa 20/8 stream cypher; Used by BlockMix. See http://en.wikipedia.org/wiki/Salsa20'''
-
-        # Convert the character array into an int32 array
-        B32 = [make_int32(
-            (ord(B[i * 4]) | (ord(B[i * 4 + 1]) << 8) | (ord(B[i * 4 + 2]) << 16) | (ord(B[i * 4 + 3]) << 24))) for i in
-               range(0, 16)]
-        x = [i for i in B32]
-
-        # Salsa... Time to dance.
-        for i in range(8, 0, -2):
-            R(x, 4, 0, 12, 7);
-            R(x, 8, 4, 0, 9);
-            R(x, 12, 8, 4, 13);
-            R(x, 0, 12, 8, 18)
-            R(x, 9, 5, 1, 7);
-            R(x, 13, 9, 5, 9);
-            R(x, 1, 13, 9, 13);
-            R(x, 5, 1, 13, 18)
-            R(x, 14, 10, 6, 7);
-            R(x, 2, 14, 10, 9);
-            R(x, 6, 2, 14, 13);
-            R(x, 10, 6, 2, 18)
-            R(x, 3, 15, 11, 7);
-            R(x, 7, 3, 15, 9);
-            R(x, 11, 7, 3, 13);
-            R(x, 15, 11, 7, 18)
-            R(x, 1, 0, 3, 7);
-            R(x, 2, 1, 0, 9);
-            R(x, 3, 2, 1, 13);
-            R(x, 0, 3, 2, 18)
-            R(x, 6, 5, 4, 7);
-            R(x, 7, 6, 5, 9);
-            R(x, 4, 7, 6, 13);
-            R(x, 5, 4, 7, 18)
-            R(x, 11, 10, 9, 7);
-            R(x, 8, 11, 10, 9);
-            R(x, 9, 8, 11, 13);
-            R(x, 10, 9, 8, 18)
-            R(x, 12, 15, 14, 7);
-            R(x, 13, 12, 15, 9);
-            R(x, 14, 13, 12, 13);
-            R(x, 15, 14, 13, 18)
-
-        # Coerce into nice happy 32-bit integers
-        B32 = [make_int32(x[i] + B32[i]) for i in range(0, 16)]
-
-        # Convert back to bytes
-        for i in range(0, 16):
-            B[i * 4 + 0] = chr((B32[i] >> 0) & 0xff)
-            B[i * 4 + 1] = chr((B32[i] >> 8) & 0xff)
-            B[i * 4 + 2] = chr((B32[i] >> 16) & 0xff)
-            B[i * 4 + 3] = chr((B32[i] >> 24) & 0xff)
-
-    def blockmix_salsa8(BY, Bi, Yi, r):
-        '''Blockmix; Used by SMix.'''
-
-        start = Bi + (2 * r - 1) * 64
-        X = [BY[i] for i in range(start, start + 64)]  # BlockMix - 1
-
-        for i in range(0, 2 * r):  # BlockMix - 2
-            blockxor(BY, i * 64, X, 0, 64)  # BlockMix - 3(inner)
-            salsa20_8(X)  # BlockMix - 3(outer)
-            array_overwrite(X, 0, BY, Yi + (i * 64), 64)  # BlockMix - 4
-
-        for i in range(0, r):  # BlockMix - 6 (and below)
-            array_overwrite(BY, Yi + (i * 2) * 64, BY, Bi + (i * 64), 64)
-
-        for i in range(0, r):
-            array_overwrite(BY, Yi + (i * 2 + 1) * 64, BY, Bi + (i + r) * 64, 64)
-
-    def smix(B, Bi, r, N, V, X):
-        '''SMix; a specific case of ROMix. See scrypt.pdf in the links above.'''
-
-        array_overwrite(B, Bi, X, 0, 128 * r)  # ROMix - 1
-
-        for i in range(0, N):  # ROMix - 2
-            array_overwrite(X, 0, V, i * (128 * r), 128 * r)  # ROMix - 3
-            blockmix_salsa8(X, 0, 128 * r, r)  # ROMix - 4
-
-        for i in range(0, N):  # ROMix - 6
-            j = integerify(X, 0, r) & (N - 1)  # ROMix - 7
-            blockxor(V, j * (128 * r), X, 0, 128 * r)  # ROMix - 8(inner)
-            blockmix_salsa8(X, 0, 128 * r, r)  # ROMix - 9(outer)
-
-        array_overwrite(X, 0, B, Bi, 128 * r)  # ROMix - 10
-
-    # Scrypt implementation. Significant thanks to https://github.com/wg/scrypt
-    if N < 2 or (N & (N - 1)): raise ValueError('Scrypt N must be a power of 2 greater than 1')
-
-    prf = lambda k, m: hmac.new(key=k, msg=m, digestmod=hashlib.sha256).digest()
-
-    DK = [chr(0)] * dkLen
-
-    B = [c for c in pbkdf2(password, salt, 1, p * 128 * r, prf)]
-    XY = [chr(0)] * (256 * r)
-    V = [chr(0)] * (128 * r * N)
-
-    for i in range(0, p):
-        smix(B, i * 128 * r, r, N, V, XY)
-
-    return pbkdf2(password, ''.join(B), 1, dkLen, prf)
-
-
-SCRYPT_LIBRARY = None
-scrypt_proof_of_work = None
-
-
-def set_scrypt_library(library=SCRYPT_LIBRARY_AUTO):
-    '''Sets the scrypt library implementation to use.'''
-
-    global SCRYPT_LIBRARY
-    global scrypt_proof_of_work
-
-    if library == SCRYPT_LIBRARY_LTC:
-        import ltc_scrypt
-        scrypt_proof_of_work = ltc_scrypt.getPoWHash
-        SCRYPT_LIBRARY = library
-
-    elif library == SCRYPT_LIBRARY_SCRYPT:
-        import scrypt as NativeScrypt
-        scrypt_proof_of_work = lambda header: NativeScrypt.hash(header, header, 1024, 1, 1, 32)
-        SCRYPT_LIBRARY = library
-
-    # Try to load a faster version of scrypt before using the pure-Python implementation
-    elif library == SCRYPT_LIBRARY_AUTO:
-        try:
-            set_scrypt_library(SCRYPT_LIBRARY_LTC)
-        except Exception:
-            try:
-                set_scrypt_library(SCRYPT_LIBRARY_SCRYPT)
-            except Exception:
-                set_scrypt_library(SCRYPT_LIBRARY_PYTHON)
-
-    else:
-        scrypt_proof_of_work = lambda header: scrypt(header, header, 1024, 1, 1, 32)
-        SCRYPT_LIBRARY = library
-
-
-set_scrypt_library()
-
-
 class Job(object):
-    '''Encapsulates a Job from the network and necessary helper methods to mine.
+    """Encapsulates a Job from the network and necessary helper methods to mine.
 
      "If you have a procedure with 10 parameters, you probably missed some."
            ~Alan Perlis
-  '''
+  """
 
     def __init__(self, job_id, prevhash, coinb1, coinb2, merkle_branches, version, nbits, ntime, target, extranonce1,
                  extranonce2_size, proof_of_work):
@@ -389,7 +145,7 @@ class Job(object):
         self._nbits = nbits
         self._ntime = ntime
 
-        # Job information needed to mine from mining.subsribe
+        # Job information needed to mine from mining.subscribe
         self._target = target
         self._extranonce1 = extranonce1
         self._extranonce2_size = extranonce2_size
@@ -422,13 +178,14 @@ class Job(object):
 
     @property
     def hashrate(self):
-        '''The current hashrate, or if stopped hashrate for the job's lifetime.'''
+        """The current hashrate, or if stopped hashrate for the job's lifetime."""
 
-        if self._dt == 0: return 0.0
+        if self._dt == 0:
+            return 0.0
         return self._hash_count / self._dt
 
     def merkle_root_bin(self, extranonce2_bin):
-        '''Builds a merkle root from the merkle tree'''
+        """Builds a merkle root from the merkle tree"""
 
         coinbase_bin = unhexlify(self._coinb1) + unhexlify(self._extranonce1) + extranonce2_bin + unhexlify(
             self._coinb2)
@@ -440,12 +197,12 @@ class Job(object):
         return merkle_root
 
     def stop(self):
-        '''Requests the mine coroutine stop after its current iteration.'''
+        """Requests the mine coroutine stop after its current iteration."""
 
         self._done = True
 
     def mine(self, nonce_start=0, nonce_stride=1):
-        '''Returns an iterator that iterates over valid proof-of-work shares.
+        """Returns an iterator that iterates over valid proof-of-work shares.
 
        This is a co-routine; that takes a LONG time; the calling thread should look like:
 
@@ -455,7 +212,7 @@ class Job(object):
        nonce_start and nonce_stride are useful for multi-processing if you would like
        to assign each process a different starting nonce (0, 1, 2, ...) and a stride
        equal to the number of processes.
-    '''
+    """
 
         t0 = time.time()
 
@@ -476,23 +233,24 @@ class Job(object):
                 # Proof-of-work attempt
                 nonce_bin = struct.pack('<I', nonce)
                 inner = header_prefix_bin + nonce_bin
-                print("inner: ", end='')
-                print(inner)
-                pow = self.proof_of_work(inner)[::-1].encode('hex')
+                # print("inner: ", end='')
+                # print(inner.hex())
+                # pow = self.proof_of_work(inner)[::-1].encode('hex')
 
                 # Did we reach or exceed our target?
-                if pow <= self.target:
-                    result = dict(
-                        job_id=self.id,
-                        extranonce2=hexlify(extranonce2_bin),
-                        ntime=str(self._ntime),  # Convert to str from json unicode
-                        nonce=hexlify(nonce_bin[::-1])
-                    )
-                    self._dt += (time.time() - t0)
-
-                    yield result
-
-                    t0 = time.time()
+                # if pow <= self.target:
+                #     result = dict(
+                #         job_id=self.id,
+                #         extranonce2=hexlify(extranonce2_bin),
+                #         ntime=str(self._ntime),  # Convert to str from json unicode
+                #         nonce=hexlify(nonce_bin[::-1])
+                #     )
+                #     self._dt += (time.time() - t0)
+                #
+                #     yield result
+                #
+                #     t0 = time.time()
+                time.sleep(10)
 
                 self._hash_count += 1
 
@@ -504,7 +262,7 @@ class Job(object):
 
 # Subscription state
 class Subscription(object):
-    '''Encapsulates the Subscription state from the JSON-RPC server'''
+    """Encapsulates the Subscription state from the JSON-RPC server"""
 
     # Subclasses should override this
     def ProofOfWork(header):
@@ -563,7 +321,7 @@ class Subscription(object):
         self._extranonce2_size = extranonce2_size
 
     def create_job(self, job_id, prevhash, coinb1, coinb2, merkle_branches, version, nbits, ntime):
-        '''Creates a new Job object populated with all the goodness it needs to mine.'''
+        """Creates a new Job object populated with all the goodness it needs to mine."""
 
         if self._id is None:
             raise self.StateException('Not subscribed')
@@ -588,28 +346,14 @@ class Subscription(object):
         self.id, self.extranonce1, self.extranonce2_size, self.difficulty, self.worker_name)
 
 
-class SubscriptionScrypt(Subscription):
-    '''Subscription for Scrypt-based coins, like Litecoin.'''
-
-    ProofOfWork = lambda s, h: (scrypt_proof_of_work(h))
-
-    def _set_target(self, target):
-        # Why multiply by 2**16? See: https://litecoin.info/Mining_pool_comparison
-        self._target = '%064x' % (target << 16)
-
-
 class SubscriptionSHA256D(Subscription):
-    '''Subscription for Double-SHA256-based coins, like Bitcoin.'''
+    """Subscription for Double-SHA256-based coins, like Bitcoin."""
 
     ProofOfWork = sha256d
 
 
-# Maps algorithms to their respective subscription objects
-SubscriptionByAlgorithm = {ALGORITHM_SCRYPT: SubscriptionScrypt, ALGORITHM_SHA256D: SubscriptionSHA256D}
-
-
 class SimpleJsonRpcClient(object):
-    '''Simple JSON-RPC client.
+    """Simple JSON-RPC client.
 
     To use this class:
       1) Create a sub-class
@@ -620,7 +364,7 @@ class SimpleJsonRpcClient(object):
 
     A new thread is created for listening to the connection; so calls to handle_reply
     are synchronized. It is safe to call send from withing handle_reply.
-  '''
+  """
 
     class ClientException(Exception):
         pass
@@ -635,7 +379,7 @@ class SimpleJsonRpcClient(object):
         reply = property(lambda s: s._reply)
 
     class RequestReplyWarning(RequestReplyException):
-        '''Sub-classes can raise this to inform the user of JSON-RPC server issues.'''
+        """Sub-classes can raise this to inform the user of JSON-RPC server issues."""
         pass
 
     def __init__(self):
@@ -684,7 +428,7 @@ class SimpleJsonRpcClient(object):
         raise self.RequestReplyWarning('Override this method')
 
     def send(self, method, params):
-        '''Sends a message to the JSON-RPC server'''
+        """Sends a message to the JSON-RPC server"""
 
         if not self._socket:
             raise self.ClientException('Not connected')
@@ -701,7 +445,7 @@ class SimpleJsonRpcClient(object):
         return request
 
     def connect(self, socket):
-        '''Connects to a remove JSON-RPC server'''
+        """Connects to a remove JSON-RPC server"""
 
         if self._rpc_thread:
             raise self.ClientException('Already connected')
@@ -715,7 +459,7 @@ class SimpleJsonRpcClient(object):
 
 # Miner client
 class Miner(SimpleJsonRpcClient):
-    '''Simple mining client'''
+    """Simple mining client"""
 
     class MinerWarning(SimpleJsonRpcClient.RequestReplyWarning):
         def __init__(self, message, reply, request=None):
@@ -731,7 +475,7 @@ class Miner(SimpleJsonRpcClient):
         self._username = username
         self._password = password
 
-        self._subscription = SubscriptionByAlgorithm[algorithm]()
+        self._subscription = SubscriptionSHA256D()
 
         self._job = None
 
@@ -751,9 +495,10 @@ class Miner(SimpleJsonRpcClient):
                 raise self.MinerWarning('Malformed mining.notify message', reply)
 
             (job_id, prevhash, coinb1, coinb2, merkle_branches, version, nbits, ntime, clean_jobs) = reply['params']
-            #self._spawn_job_thread(job_id, prevhash, coinb1, coinb2, merkle_branches, version, nbits, ntime)
 
-            #log('New job: job_id=%s' % job_id, LEVEL_DEBUG)
+            # commenting this out disables actual mining
+            self._spawn_job_thread(job_id, prevhash, coinb1, coinb2, merkle_branches, version, nbits, ntime)
+            log('New job: job_id=%s' % job_id, LEVEL_DEBUG)
 
         # The server wants us to change our difficulty (on all *future* work)
         elif reply.get('method') == 'mining.set_difficulty':
@@ -770,15 +515,10 @@ class Miner(SimpleJsonRpcClient):
 
             # ...subscribe; set-up the work and request authorization
             if request.get('method') == 'mining.subscribe':
-                #print(reply)
-                #if "result" not in reply or len(reply['result']) != 3 or len(reply['result'][0]) != 2:
-                if "result" not in reply:
+                if "result" not in reply or len(reply['result']) != 3 or len(reply['result'][0][0]) != 2:
                     raise self.MinerWarning('Reply to mining.subscribe is malformed', reply, request)
 
-                #((mining_notify, subscription_id), extranonce1, extranonce2_size) = reply['result']
-                (mining_notify, subscription_id) = reply['result'][0][0]
-                extranonce1 = reply['result'][1]
-                extranonce2_size = reply['result'][2]
+                ([(mining_notify, subscription_id)], extranonce1, extranonce2_size) = reply['result']
 
                 self._subscription.set_subscription(subscription_id, extranonce1, extranonce2_size)
 
@@ -815,10 +555,11 @@ class Miner(SimpleJsonRpcClient):
             raise self.MinerWarning('Bad message state', reply)
 
     def _spawn_job_thread(self, job_id, prevhash, coinb1, coinb2, merkle_branches, version, nbits, ntime):
-        '''Stops any previous job and begins a new job.'''
+        """Stops any previous job and begins a new job."""
 
         # Stop the old job (if any)
-        if self._job: self._job.stop()
+        if self._job:
+            self._job.stop()
 
         # Create the new job
         self._job = self._subscription.create_job(
@@ -847,7 +588,7 @@ class Miner(SimpleJsonRpcClient):
         thread.start()
 
     def serve_forever(self):
-        '''Begins the miner. This method does not return.'''
+        """Begins the miner. This method does not return."""
 
         # Figure out the hostname and port
         url = urlparse(self.url)
@@ -868,7 +609,7 @@ class Miner(SimpleJsonRpcClient):
 
 
 def test_subscription():
-    '''Test harness for mining, using a known valid share.'''
+    """Test harness for mining, using a known valid share."""
 
     log('TEST: Scrypt algorithm = %r' % SCRYPT_LIBRARY, LEVEL_DEBUG)
     log('TEST: Testing Subscription', LEVEL_DEBUG)
@@ -966,19 +707,22 @@ if __name__ == '__main__':
         sys.exit(1)
 
     # Set the logging level
-    if options.debug: DEBUG = True
-    if options.protocol: DEBUG_PROTOCOL = True
-    if options.quiet: QUIET = True
+    if options.debug:
+        DEBUG = True
+    if options.protocol:
+        DEBUG_PROTOCOL = True
+    if options.quiet:
+        QUIET = True
 
-    if DEBUG:
-        for library in SCRYPT_LIBRARIES:
-            set_scrypt_library(library)
-            test_subscription()
-
-        # Set us to a faster library if available
-        set_scrypt_library()
-        if options.algo == ALGORITHM_SCRYPT:
-            log('Using scrypt library %r' % SCRYPT_LIBRARY, LEVEL_DEBUG)
+    #if DEBUG:
+        # for library in SCRYPT_LIBRARIES:
+        #     set_scrypt_library(library)
+        #     test_subscription()
+        #
+        # # Set us to a faster library if available
+        # set_scrypt_library()
+        # if options.algo == ALGORITHM_SCRYPT:
+        #     log('Using scrypt library %r' % SCRYPT_LIBRARY, LEVEL_DEBUG)
 
     # The want a daemon, give them a daemon
     if options.background:
