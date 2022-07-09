@@ -54,18 +54,7 @@ ALGORITHM_SHA256D = 'sha256d'
 
 ALGORITHMS = [ALGORITHM_SHA256D]
 
-
-
-def human_readable_hashrate(hashrate):
-    """Returns a human readable representation of hashrate."""
-
-    if hashrate < 1000:
-        return '%2f hashes/s' % hashrate
-    if hashrate < 10000000:
-        return '%2f khashes/s' % (hashrate / 1000)
-    if hashrate < 10000000000:
-        return '%2f Mhashes/s' % (hashrate / 1000000)
-    return '%2f Ghashes/s' % (hashrate / 1000000000)
+DEBUG = False
 
 
 # Subscription state
@@ -163,7 +152,6 @@ class SubscriptionSHA256D(Subscription):
 def test_subscription():
     """Test harness for mining, using a known valid share."""
 
-    # log('TEST: Scrypt algorithm = %r' % SCRYPT_LIBRARY, LEVEL_DEBUG)
     log('TEST: Testing Subscription', LEVEL_DEBUG)
 
     subscription = SubscriptionSHA256D()
@@ -183,9 +171,10 @@ def test_subscription():
 
     # Create a job
     reply = json.loads(
-        '{"params": ["1db7", "0b29bfff96c5dc08ee65e63d7b7bab431745b089ff0cf95b49a1631e1d2f9f31", "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff2503777d07062f503253482f0405b8c75208", "0b2f436f696e48756e74722f0000000001603f352a010000001976a914c633315d376c20a973a758f7422d67f7bfed9c5888ac00000000", ["f0dbca1ee1a9f6388d07d97c1ab0de0e41acdf2edac4b95780ba0a1ec14103b3", "8e43fd2988ac40c5d97702b7e5ccdf5b06d58f0e0d323f74dd5082232c1aedf7", "1177601320ac928b8c145d771dae78a3901a089fa4aca8def01cbff747355818", "9f64f3b0d9edddb14be6f71c3ac2e80455916e207ffc003316c6a515452aa7b4", "2d0b54af60fad4ae59ec02031f661d026f2bb95e2eeb1e6657a35036c017c595"], "00000002", "1b148272", "52c7b81a", true], "id": null, "method": "mining.notify"}')
+        '{"params": ["1db7", "8e127e5e31146515557296c9b8ec85c6c63fd90d0000a6fc0000000000000000", "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff2503777d07062f503253482f0405b8c75208", "0b2f436f696e48756e74722f0000000001603f352a010000001976a914c633315d376c20a973a758f7422d67f7bfed9c5888ac00000000", ["f0dbca1ee1a9f6388d07d97c1ab0de0e41acdf2edac4b95780ba0a1ec14103b3", "8e43fd2988ac40c5d97702b7e5ccdf5b06d58f0e0d323f74dd5082232c1aedf7", "1177601320ac928b8c145d771dae78a3901a089fa4aca8def01cbff747355818", "9f64f3b0d9edddb14be6f71c3ac2e80455916e207ffc003316c6a515452aa7b4", "2d0b54af60fad4ae59ec02031f661d026f2bb95e2eeb1e6657a35036c017c595"], "00000002", "1b148272", "52c7b81a", true], "id": null, "method": "mining.notify"}')
     log('TEST: %r' % reply, LEVEL_DEBUG)
     (job_id, prevhash, coinb1, coinb2, merkle_branches, version, nbits, ntime, clean_jobs) = reply['params']
+    print(reply['params'])
     job = subscription.create_job(
         job_id=job_id,
         prevhash=prevhash,
@@ -265,6 +254,9 @@ if __name__ == '__main__':
         DEBUG_PROTOCOL = True
     if options.quiet:
         QUIET = True
+
+    if DEBUG:
+        test_subscription()
 
     # The want a daemon, give them a daemon
     if options.background:

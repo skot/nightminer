@@ -34,6 +34,18 @@ def log(message, level):
     print("[%s] %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), message))
 
 
+def human_readable_hashrate(hashrate):
+    """Returns a human readable representation of hashrate."""
+
+    if hashrate < 1000:
+        return '%2f hashes/s' % hashrate
+    if hashrate < 10000000:
+        return '%2f khashes/s' % (hashrate / 1000)
+    if hashrate < 10000000000:
+        return '%2f Mhashes/s' % (hashrate / 1000000)
+    return '%2f Ghashes/s' % (hashrate / 1000000000)
+
+
 class SimpleJsonRpcClient(object):
     """Simple JSON-RPC client.
 
@@ -201,7 +213,6 @@ class Miner(SimpleJsonRpcClient):
                     raise self.MinerWarning('Reply to mining.subscribe is malformed', reply, request)
 
                 ([(mining_notify, subscription_id)], extranonce1, extranonce2_size) = reply['result']
-                print(extranonce2_size)
 
                 self._subscription.set_subscription(subscription_id, extranonce1, extranonce2_size)
 
