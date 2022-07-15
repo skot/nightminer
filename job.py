@@ -16,6 +16,14 @@ def pretty_hex(data):
     print("%02X]" % data[-1])
 
 
+# nice hex array print
+def pretty_hex2(data):
+    print("[", end='')
+    for x in data[:-1]:
+        print("%02X" % x, end='')
+    print("%02X]" % data[-1])
+
+
 def sha256d(message):
     """Double SHA256 Hashing function."""
 
@@ -27,7 +35,8 @@ def swap_endian_word(hex_word):
 
     message = unhexlify(hex_word)
     # print(message)
-    if len(message) != 4: raise ValueError('Must be 4-byte word')
+    if len(message) != 4:
+        raise ValueError('Must be 4-byte word')
     return message[::-1]
 
 
